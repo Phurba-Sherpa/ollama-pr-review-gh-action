@@ -77,7 +77,7 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Run Ollama Code Review
-      uses: ./
+      uses: phurba-sherpa/ollama-pr-review-action@v1.1.0
       with:
         OLLAMA_API_URL: 'http://localhost:11434' # Local Ollama server
         MY_GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
@@ -115,7 +115,7 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Run Ollama Code Review
-      uses: ./
+      uses: phurba-sherpa/ollama-pr-review-action@v1.1.0
       with:
         OLLAMA_API_URL: ${{ secrets.OLLAMA_API_URL }} # URL to your GPU server
         MY_GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
@@ -150,6 +150,7 @@ jobs:
 - `MODEL`: Ollama model for code review
 - `TRANSLATION_MODEL`: Model for translating reviews
 - `GITHUB_API_BASE_URL`: API for GHE/Gitea
+- `OLLAMA_API_KEY`: API key for Ollama (required for cloud models)
 
 ## Security
 
