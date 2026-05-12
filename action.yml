@@ -9,6 +9,10 @@ inputs:
         description: 'The URL of the Ollama API server.'
         required: true
         default: 'http://localhost:11434'
+    OLLAMA_API_KEY:
+        description: 'The API Key of Ollama API server (required for cloud model)'
+        required: false
+        default: ''
     MY_GITHUB_TOKEN:
         description: 'The GitHub token to use for making API requests.'
         required: true
@@ -32,7 +36,7 @@ inputs:
     MODEL:
         description: 'The model to use for the review.'
         required: false
-        default: 'deepseek-r1:8b'
+        default: 'qwen3-coder:480b-cloud'
     TRANSLATION_MODEL:
         description: 'The model to use for translation.'
         required: false
@@ -50,6 +54,7 @@ runs:
       env:
         GITHUB_API_BASE_URL: ${{ inputs.GITHUB_API_BASE_URL }}
         OLLAMA_API_URL: ${{ inputs.OLLAMA_API_URL }}
+        OLLAMA_API_KEY: ${{ inputs.OLLAMA_API_KEY }}
         MY_GITHUB_TOKEN: ${{ inputs.MY_GITHUB_TOKEN }}
         OWNER: ${{ inputs.OWNER }}
         REPO: ${{ inputs.REPO }}
