@@ -7,7 +7,8 @@ This GitHub Action uses Ollama to automatically perform code reviews on pull req
 - Automated code review using Ollama models
 - Support for multiple programming languages
 - Multilingual review output with translation support
-- Risk score assessment (1-5 scale)
+- Inline PR comments with severity levels (Critical, Suggestion, Nitpick)
+- Filters out image files to focus on source code
 - Maintains technical terms in English during translation
 
 ## Models
@@ -15,17 +16,18 @@ This GitHub Action uses Ollama to automatically perform code reviews on pull req
 This action uses two types of models:
 
 1. **Review Model** (`MODEL`): The main model used for code review analysis. This model analyzes the code changes and generates technical feedback.
-   - Default: `qwen2.5-coder:32b`
-   - Example alternatives: `llama3.3`, `deepseek-r1:70b`
+   - Default: `qwen3-coder:480b-cloud`
+   - Example alternatives: `qwen2.5-coder:32b`, `llama3.3`, `deepseek-r1:70b`
 
 2. **Translation Model** (`TRANSLATION_MODEL`): Used specifically for translating the review output to the target language while preserving technical terms.
-   - Default: `exaone3.5:32b`
+   - Default: `exaone3.5:7.8b`
    - Optimized for maintaining technical accuracy during translation
 
 ## Recommended Models
 
 ### Code Review Models 
-- Primary: `qwen2.5-coder:32b` (Recommended)
+- Primary: `qwen3-coder:480b-cloud` (Recommended, requires `OLLAMA_API_KEY`)
+- Local & Self-Hosted: `qwen2.5-coder:32b`
 - Alternative & Lightweight: `qwen2.5-coder:7b`
 
 ### Translation Models
@@ -57,7 +59,39 @@ This action requires significant computational resources due to the large model 
 
 ## Usage
 
-### Single GPU Server Setup (Recommended)
+### Cloud Setup (Recommended)
+
+To use Ollama's managed cloud service, configure it with your API key:
+
+```yaml
+name: Ollama Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  request-review:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Run Ollama Code Review
+      uses: phurba-sherpa/ollama-pr-review-action@v1.1.0
+      with:
+        OLLAMA_API_URL: 'https://api.ollama.com' # Cloud Ollama server
+        OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+        MY_GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
+        OWNER: ${{ github.repository_owner }}
+        REPO: ${{ github.event.repository.name }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        RESPONSE_LANGUAGE: 'Korean'
+        MODEL: 'qwen3-coder:480b-cloud'
+```
+
+### Local / Self-hosted GPU Setup
 
 This example assumes you have a dedicated server with sufficient GPU capacity (48GB+ VRAM) running both the GitHub Action and Ollama server:
 
@@ -129,7 +163,7 @@ jobs:
 
 ⚠️ **Important Notes:**
 - Ensure your Ollama server has sufficient GPU capacity for both models
-- The single server setup is recommended for simplicity and security
+- The Cloud or Local / Self-hosted setup is recommended for simplicity and security
 - For split setup, ensure proper network security between GitHub Actions and your Ollama server
 - Configure firewall rules to only allow connections from your GitHub Actions IP ranges
 
@@ -150,7 +184,7 @@ jobs:
 - `MODEL`: Ollama model for code review
 - `TRANSLATION_MODEL`: Model for translating reviews
 - `GITHUB_API_BASE_URL`: API for GHE/Gitea
-- `OLLAMA_API_KEY`: API key for Ollama (required for cloud models)
+- `OLLAMA_API_KEY`: API key for Ollama (required for cloud models using `ollama.com` endpoint)
 
 ## Security
 
@@ -165,6 +199,7 @@ jobs:
 - Required Python packages:
   - requests>=2.31.0
   - pydantic>=2.10.6
+  - python-dotenv>=1.2,<2.0
 
 ## Local Development
 
@@ -180,7 +215,8 @@ python src/ollama_review.py
 ```
 
 ## Future Improvements
-- Give custom prompt for project guidelines
+- Support for more models and advanced heuristics.
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.

@@ -4,82 +4,96 @@ import time
 
 import requests
 from dotenv import load_dotenv
+from pydantic import ValidationError
 
-from review import CodeReviewResponse, generate_review_response
+from review import (CodeReviewResponse, format_files_for_llm,
+                    generate_review_response)
 
 load_dotenv()
 
 
-system_prompt = """You are an expert code quality reviewer with deep expertise in software engineering best practices, clean code principles, and maintainable architecture. Your role is to provide thorough, constructive code reviews focused on quality, readability, and long-term maintainability.
+SEVERITY_EMOJI = {
+    "critical": "🔴❗",
+    "suggestion": "💡",
+    "nitpick": "🔍",
+}
+system_prompt = """
+You are an expert code quality reviewer with deep expertise in software engineering best practices, clean code principles, and maintainable architecture. Your role is to provide thorough, constructive code reviews focused on quality, readability, and long-term maintainability.
 
-- Focus review on changed lines only
-- Use surrounding context only to understand behavior
-- Do not critique unchanged code unless directly impacted
+When reviewing code, you will:
 
-Focus on:
-- correctness
-- security
-- maintainability
-- performance
-- reliability
+**Clean Code Analysis:**
 
-Only report issues that are:
-- actionable,
-- high confidence,
-- and impactful.
+- Evaluate naming conventions for clarity and descriptiveness
+- Assess function and method sizes for single responsibility adherence
+- Check for code duplication and suggest DRY improvements
+- Identify overly complex logic that could be simplified
+- Verify proper separation of concerns
 
-If uncertain, skip the issue.
-Prefer precision over recall.
+**Error Handling & Edge Cases:**
 
-Only flag maintainability concerns when they create meaningful complexity or future bug risk.
+- Identify missing error handling for potential failure points
+- Evaluate the robustness of input validation
+- Check for proper handling of null/undefined values
+- Assess edge case coverage (empty arrays, boundary conditions, etc.)
+- Verify appropriate use of try-catch blocks and error propagation
 
-Only comment on architectural concerns if they introduce clear correctness or maintainability problems.
+**Readability & Maintainability:**
 
-# REVIEW FORMAT
+- Evaluate code structure and organization
+- Check for appropriate use of comments (avoiding over-commenting obvious code)
+- Assess the clarity of control flow
+- Identify magic numbers or strings that should be constants
+- Verify consistent code style and formatting
 
-## ✅ Summary
-- Brief overview of the changes
-- Overall assessment
+**TypeScript-Specific Considerations** (when applicable):
 
-## 🔴 Critical
-- Production-breaking or security-impacting issues
-- If none: `- None`
+- Prefer `type` over `interface` as per project standards
+- Avoid unnecessary use of underscores for unused variables
+- Ensure proper type safety and avoid `any` types when possible
 
-## 🟡 Important
-- Real maintainability, correctness, or reliability concerns
-- If none: `- None`
+**Best Practices:**
 
-## 🔵 Minor
-- Optional low-impact observations
-- If none: `- None`
+- Evaluate adherence to SOLID principles
+- Check for proper use of design patterns where appropriate
+- Assess performance implications of implementation choices
+- Verify security considerations (input sanitization, sensitive data handling)
 
-## 👍 Good Changes
-- Notable improvements or good practices
-- Skip if none
+**Review Rules:**
+- Start with a brief summary of overall code quality and 2-5 concise numbered points describing what changed in this PR.
+- Organize findings by severity (critical, suggestion, nitpick)
+- Provide specific examples with line references when possible
+- Suggest concrete improvements with code examples
+- Highlight positive aspects and good practices observed
 
-## 🛠 Recommendations
-- Only actionable recommendations tied to findings above
-- Skip generic advice
+**Review Structure:**
+Provide your analysis in json format as:
+{
+  "reviews": [
+    {
+      "path": "filename",
+      "body": "comment text",
+      "position": 1,
+      "severity": "critical|suggestion|nitpick",
+      "confidence": "high|medium|low"
+    }
+  ],
+  "summary": "Overall summary of PR"
+}
 
-# STYLE RULES
 
-- Keep feedback concise and scannable
-- Prefer bullet points over paragraphs
-- Use line references when possible
-- Avoid repeating the same issue
-- Avoid generic best-practice commentary
-- Do not invent issues to fill sections
-- It is acceptable for a PR to have no significant issues
+Be constructive and educational in your feedback. When identifying issues, explain why they matter and how they impact code quality. Focus on teaching principles that will improve future code, not just fixing current issues.
 
-Be professional, direct, and constructive.
-Briefly explain why an issue matters and suggest a concrete fix."""
+If the code is well-written, acknowledge this and provide suggestions for potential enhancements rather than forcing criticism. Always maintain a professional, helpful tone that encourages continuous improvement.
+
+"""
 
 user_prompt = """
 """
 
 
 def post_review_to_github(
-    github_url, github_token, owner, repo, pr_number, review_body
+    github_url, github_token, owner, repo, pr_number, review: CodeReviewResponse
 ):
     """
     Post a review comment to a GitHub PR.
@@ -94,7 +108,19 @@ def post_review_to_github(
         "Accept": "application/vnd.github.v3+json",
     }
     review_url = f"{github_url}/repos/{owner}/{repo}/pulls/{pr_number}/reviews"
-    review_data = {"body": review_body, "event": "COMMENT"}
+    review_data = {
+        "body": f"## 📝 Summary\n\n{review.summary}",
+        "event": "COMMENT",
+        "comments": [
+            {
+                "path": comment.path,
+                "position": comment.position,
+                "body": f"{SEVERITY_EMOJI[comment.severity]} **{comment.severity.upper()}**: {comment.body}",
+            }
+            for comment in review.reviews
+            if comment.confidence == "high"
+        ],
+    }
 
     response = requests.post(review_url, headers=headers, json=review_data)
     response.raise_for_status()
@@ -249,22 +275,15 @@ def request_code_review(
         files = response.json()
 
         # Collect all changed code
-        changes = []
-        for file in files:
-            changes.append(
-                {
-                    "filename": file["filename"],
-                    "patch": file.get("patch", ""),
-                    "status": file["status"],
-                }
-            )
-
         # Convert changes to a JSON-formatted string (using indent for readability)
-        changes_str = json.dumps(changes, indent=2, ensure_ascii=False)
+        formatted_changes = format_files_for_llm(files)
 
         # Create complete prompt using the global user_prompt
         complete_user_prompt = (
-            user_prompt + (custom_prompt or "") + "\n\n### CHANGES\n" + changes_str
+            user_prompt
+            + (custom_prompt or "")
+            + "\n\n**Code Changes:**\n"
+            + formatted_changes
         )
         print("Complete User Prompt given to Ollama:", complete_user_prompt)
 
@@ -291,18 +310,10 @@ def request_code_review(
             review_json["response"] if "response" in review_json else review_json
         )
 
-        if review_content.startswith("```"):
-            lines = review_content.split("\n")
-            review_content = "\n".join(lines[1:-1])
-
-        print("\n\n")
-        print(review_content)
-        print("\n\n")
-
         try:
-            review_data = CodeReviewResponse.model_validate_json(review_content)
-            formatted_review = generate_review_response(review_data.reviews)
-        except Exception:
+            formatted_review = CodeReviewResponse.model_validate_json(review_content)
+        except ValidationError as e:
+            print("CodeReviewValidation failed", e.errors())
             formatted_review = review_content
 
         return formatted_review
@@ -354,20 +365,6 @@ if __name__ == "__main__":
         )
 
         print(f"Review generated: {review}")
-
-        # Translate if needed
-        if response_language.lower() != "english":
-            print(
-                f"Translating review to {response_language} using {translation_model}..."
-            )
-            review = translate_review(
-                ollama_api_url,
-                ollama_api_key,
-                review,
-                response_language,
-                translation_model,
-            )
-            print("Translation completed.")
 
         # Post review back to GitHub PR
         post_review_to_github(github_url, github_token, owner, repo, pr_number, review)
