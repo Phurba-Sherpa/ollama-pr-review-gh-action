@@ -1,20 +1,32 @@
-from pydantic import BaseModel
-from typing import List, Optional
+from pathlib import Path
+from typing import List, Literal
+
+from pydantic import BaseModel, Field
+
+IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"}
 
 
-class FeedbackItem(BaseModel):
-    title: str
-    details: str
-
-
-class FileReview(BaseModel):
-    filename: str
-    risk_score: int  # 1-5 scale
-    feedback: List[FeedbackItem]
+class Comment(BaseModel):
+    path: str = Field(description="Relative path to the file.")
+    body: str = Field(description="Text of the review comment.")
+    position: int = Field(description="Position in the file to comment on.")
+    severity: Literal["critical", "suggestion", "nitpick"]
+    confidence: Literal["high", "medium", "low"]
 
 
 class CodeReviewResponse(BaseModel):
-    reviews: List[FileReview]
+    reviews: List[Comment]
+    summary: str = Field(
+        description="concise points describing what changed. Be neutral and factual."
+    )
+
+
+def should_review(file):
+    if Path(file["filename"]).suffix.lower() in IMAGE_EXTS:
+        return False
+    if not file.get("patch"):
+        return False
+    return True
 
 
 def generate_review_response(file_reviews):
@@ -37,3 +49,28 @@ def generate_review_response(file_reviews):
             response.append("")
 
     return "\n".join(response)
+
+
+def add_position_to_file(patch: str) -> str:
+    lines = patch.splitlines()
+    result = []
+    position = 0
+    for line in lines:
+        if line.startswith("@@"):
+            result.append(line)
+        else:
+            position += 1
+            result.append(f"[pos {position}] {line}")
+    return "\n".join(result)
+
+
+def format_files_for_llm(files) -> str:
+    result = []
+
+    for i, file in enumerate(files, 1):
+        if not should_review(file):
+            continue
+        result.append(f"## File {i}: {file['filename']} ({file['status']})")
+        result.append(add_position_to_file(file["patch"]))
+        result.append("")
+    return "\n".join(result)
