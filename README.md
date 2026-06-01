@@ -180,8 +180,7 @@ python src/ollama_review.py
 ```
 
 ## Future Improvements
-- File-by-file detailed review comments
-
+- Give custom prompt for project guidelines
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
