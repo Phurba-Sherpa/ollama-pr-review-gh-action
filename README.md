@@ -179,12 +179,21 @@ jobs:
 
 ### Optional Settings
 
-- `CUSTOM_PROMPT`: Additional instructions for the review model
+- `CUSTOM_PROMPT`: File path to a prompt file used for the review model. Default: `FOLDER-STRUCTURE.md`
 - `RESPONSE_LANGUAGE`: Target language for the review output
 - `MODEL`: Ollama model for code review
 - `TRANSLATION_MODEL`: Model for translating reviews
 - `GITHUB_API_BASE_URL`: API for GHE/Gitea
 - `OLLAMA_API_KEY`: API key for Ollama (required for cloud models using `ollama.com` endpoint)
+
+### Custom Prompt Examples
+
+Use a prompt file path from your repository:
+
+```yaml
+with:
+  CUSTOM_PROMPT: '.github/review-prompt.md'
+```
 
 ## Security
 

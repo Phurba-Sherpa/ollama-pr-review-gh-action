@@ -28,7 +28,6 @@ inputs:
     CUSTOM_PROMPT:
         description: 'The custom prompt to use for the review.'
         required: false
-        default: 'pr-review.md'
     RESPONSE_LANGUAGE:
         description: 'The language to use for the response.'
         required: false
