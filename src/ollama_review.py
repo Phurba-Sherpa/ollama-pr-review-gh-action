@@ -1,6 +1,8 @@
 import json
 import os
+import sys
 import time
+from config import FileConfig
 
 import requests
 from dotenv import load_dotenv
@@ -10,6 +12,11 @@ from review import (CodeReviewResponse, format_files_for_llm,
                     generate_review_response)
 
 load_dotenv()
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 
 SEVERITY_EMOJI = {
@@ -60,6 +67,7 @@ When reviewing code, you will:
 - Verify security considerations (input sanitization, sensitive data handling)
 
 **Review Rules:**
+- Always try to review against the project standard/rule/structure provided (if avail).
 - Start with a brief summary of overall code quality and 2-5 concise numbered points describing what changed in this PR.
 - Organize findings by severity (critical, suggestion, nitpick)
 - Provide specific examples with line references when possible
@@ -90,6 +98,14 @@ If the code is well-written, acknowledge this and provide suggestions for potent
 
 user_prompt = """
 """
+
+
+def mask_secret(value):
+    if not value:
+        return "<unset>"
+    if len(value) <= 8:
+        return "*" * len(value)
+    return f"{value[:4]}...{value[-4:]}"
 
 
 def post_review_to_github(
@@ -243,6 +259,7 @@ Review to translate:
     finally:
         # Cleanup translation model
         cleanup_model(api_url, api_key, translation_model)
+    
 
 
 def request_code_review(
@@ -253,8 +270,8 @@ def request_code_review(
     repo,
     pr_number,
     model,
+    review_config,
     api_key=None,
-    custom_prompt=None,
 ):
     try:
         # Prepare review model
@@ -281,9 +298,10 @@ def request_code_review(
         # Create complete prompt using the global user_prompt
         complete_user_prompt = (
             user_prompt
-            + (custom_prompt or "")
             + "\n\n**Code Changes:**\n"
             + formatted_changes
+            + "\n\n**Project Standards:**\n"
+            + (review_config or "")
         )
         print("Complete User Prompt given to Ollama:", complete_user_prompt)
 
@@ -339,9 +357,9 @@ if __name__ == "__main__":
     github_url = os.getenv("GITHUB_API_BASE_URL", "https://api.github.com")
 
     print(f"Ollama API URL: {ollama_api_url}")
-    print(f"Ollama API KEY: {ollama_api_key}")
+    print(f"Ollama API KEY: {mask_secret(ollama_api_key)}")
     print(f"GitHub API URL: {github_url}")
-    print(f"GitHub Token: {github_token}")
+    print(f"GitHub Token: {mask_secret(github_token)}")
     print(f"Owner: {owner}")
     print(f"Repo: {repo}")
     print(f"PR Number: {pr_number}")
@@ -351,6 +369,8 @@ if __name__ == "__main__":
     print(f"Translation Model: {translation_model}")
 
     try:
+        review_config = FileConfig(custom_prompt).load()
+
         # Get review from Ollama
         review = request_code_review(
             github_url,
@@ -360,8 +380,8 @@ if __name__ == "__main__":
             repo,
             pr_number,
             model,
+            review_config,
             ollama_api_key,
-            custom_prompt,
         )
 
         print(f"Review generated: {review}")

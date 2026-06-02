@@ -28,7 +28,7 @@ inputs:
     CUSTOM_PROMPT:
         description: 'The custom prompt to use for the review.'
         required: false
-        default: ''
+        default: 'pr-review.md'
     RESPONSE_LANGUAGE:
         description: 'The language to use for the response.'
         required: false
@@ -61,7 +61,7 @@ runs:
         PR_NUMBER: ${{ inputs.PR_NUMBER }}
         CUSTOM_PROMPT: ${{ inputs.CUSTOM_PROMPT }}
         RESPONSE_LANGUAGE: ${{ inputs.RESPONSE_LANGUAGE }}
-        MODEL: ${{ inputs.model }}
+        MODEL: ${{ inputs.MODEL }}
         TRANSLATION_MODEL: ${{ inputs.TRANSLATION_MODEL }}
 branding:
   icon: 'check'
