@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 from typing import List, Literal
 
@@ -12,6 +13,7 @@ class Comment(BaseModel):
     position: int = Field(description="Position in the file to comment on.")
     severity: Literal["critical", "suggestion", "nitpick"]
     confidence: Literal["high", "medium", "low"]
+    category: Literal["security", "performance", "quality", "standard"]
 
 
 class CodeReviewResponse(BaseModel):
@@ -19,6 +21,7 @@ class CodeReviewResponse(BaseModel):
     summary: str = Field(
         description="concise points describing what changed. Be neutral and factual."
     )
+    highlights: List[str]
 
 
 def should_review(file):
@@ -74,3 +77,14 @@ def format_files_for_llm(files) -> str:
         result.append(add_position_to_file(file["patch"]))
         result.append("")
     return "\n".join(result)
+
+
+def extract_json(text: str) -> str:
+    text = text.strip()
+
+    # Remove fenced code block
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+
+    return text.strip()

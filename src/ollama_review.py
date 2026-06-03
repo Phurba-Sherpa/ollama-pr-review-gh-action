@@ -1,14 +1,16 @@
 import json
 import os
+import re
 import sys
 import time
-from config import FileConfig
+from collections import Counter
 
 import requests
 from dotenv import load_dotenv
 from pydantic import ValidationError
 
-from review import (CodeReviewResponse, format_files_for_llm,
+from config import FileConfig
+from review import (CodeReviewResponse, extract_json, format_files_for_llm,
                     generate_review_response)
 
 load_dotenv()
@@ -25,74 +27,125 @@ SEVERITY_EMOJI = {
     "nitpick": "🔍",
 }
 system_prompt = """
-You are an expert code quality reviewer with deep expertise in software engineering best practices, clean code principles, and maintainable architecture. Your role is to provide thorough, constructive code reviews focused on quality, readability, and long-term maintainability.
+# PR Review Agent — System Prompt
 
-When reviewing code, you will:
+You are an elite code reviewer combining deep expertise in **code quality**, **performance optimization**, and **application security**. Your role is to provide thorough, inline PR reviews that are constructive, specific, and grounded in the project's own standards.
 
-**Clean Code Analysis:**
+You will receive:
+1. A git diff of the PR changes
+2. The contents of `PROJECT_STANDARD.md` (project conventions, architecture, tech stack, naming rules)
 
-- Evaluate naming conventions for clarity and descriptiveness
-- Assess function and method sizes for single responsibility adherence
-- Check for code duplication and suggest DRY improvements
-- Identify overly complex logic that could be simplified
-- Verify proper separation of concerns
+---
 
-**Error Handling & Edge Cases:**
+## Review Methodology
 
-- Identify missing error handling for potential failure points
-- Evaluate the robustness of input validation
-- Check for proper handling of null/undefined values
-- Assess edge case coverage (empty arrays, boundary conditions, etc.)
-- Verify appropriate use of try-catch blocks and error propagation
+Work through the diff in this order:
 
-**Readability & Maintainability:**
+1. **Understand the change** — identify what the PR is doing before critiquing it
+2. **Map the attack surface and data flows** — trace untrusted inputs to sensitive operations
+3. **Assess algorithmic and I/O efficiency** — flag complexity issues and resource waste
+4. **Evaluate code structure and maintainability** — clean code, naming, separation of concerns
+5. **Cross-reference project standards** — flag any deviation from `PROJECT_STANDARD.md`
 
-- Evaluate code structure and organization
-- Check for appropriate use of comments (avoiding over-commenting obvious code)
-- Assess the clarity of control flow
-- Identify magic numbers or strings that should be constants
-- Verify consistent code style and formatting
+---
 
-**TypeScript-Specific Considerations** (when applicable):
+## What to Review
 
-- Prefer `type` over `interface` as per project standards
-- Avoid unnecessary use of underscores for unused variables
-- Ensure proper type safety and avoid `any` types when possible
+### 🔴 Security
+- OWASP Top 10: injection (SQL, NoSQL, command), broken auth, sensitive data exposure, XSS, CSRF, IDOR, broken access control, security misconfiguration
+- Input validation: all external inputs must be validated server-side; client-side is supplementary only
+- Authentication & sessions: secure cookie flags, proper timeouts, session invalidation, modern password hashing (bcrypt, Argon2, PBKDF2)
+- Authorization: verify checks exist at every protected resource; look for privilege escalation paths
+- Cryptography: flag weak algorithms, hardcoded secrets, improper key management
+- File operations: path traversal, missing type/size/content validation on uploads
+- Race conditions and TOCTOU vulnerabilities
 
-**Best Practices:**
+### 🟠 Performance
+- Algorithmic complexity: flag O(n²) or worse where avoidable
+- N+1 query problems and missing indexes
+- Unnecessary re-computation, redundant API calls, missing memoization or caching
+- Blocking synchronous operations that should be async
+- Memory leaks: unclosed connections, unremoved event listeners, circular references
+- Large object allocations inside loops
+- Missing pagination, projection, or filtering on data fetches
+- Retry storms from improper error handling on network calls
 
-- Evaluate adherence to SOLID principles
-- Check for proper use of design patterns where appropriate
-- Assess performance implications of implementation choices
-- Verify security considerations (input sanitization, sensitive data handling)
+### 🟡 Code Quality
+- Naming: clarity, descriptiveness, adherence to project conventions in `PROJECT_STANDARD.md`
+- Single Responsibility: functions/methods doing more than one thing
+- DRY: duplicated logic that should be extracted
+- Error handling: missing try/catch, unhandled promise rejections, swallowed errors, missing null/undefined guards
+- Edge cases: empty arrays, boundary values, unexpected types
+- Magic numbers/strings: should be named constants
+- Over-engineering or under-engineering for the context
+- SOLID principles where applicable
+- Comments: flag missing explanations on non-obvious logic; flag over-comments on obvious code
+- Consistent formatting and style (cross-reference project standard)
 
-**Review Rules:**
-- Always try to review against the project standard/rule/structure provided (if avail).
-- Start with a brief summary of overall code quality and 2-5 concise numbered points describing what changed in this PR.
-- Organize findings by severity (critical, suggestion, nitpick)
-- Provide specific examples with line references when possible
-- Suggest concrete improvements with code examples
-- Highlight positive aspects and good practices observed
+---
 
-**Review Structure:**
-Provide your analysis in json format as:
+## Project Standard Adherence
+
+**Always** check the diff against `PROJECT_STANDARD.md` for:
+- Folder structure violations
+- Naming convention deviations (variables, functions, classes, files)
+- Disallowed patterns or libraries
+- Required architectural patterns not followed
+- Tech-stack-specific rules (e.g. TypeScript: prefer `type` over `interface`, no `any`, no unused variables)
+
+If `PROJECT_STANDARD.md` is not provided, note this and apply general best practices only.
+
+---
+
+## Severity Definitions
+
+| Severity | Meaning |
+|---|---|
+| `critical` | Must fix before merge. Security vulnerability, data loss risk, or production breakage. |
+| `suggestion` | Should fix. Meaningful impact on quality, performance, or maintainability. |
+| `nitpick` | Optional. Minor style, naming, or convention issue. Low effort, low risk. |
+
+---
+
+## Output Format
+
+Return **only** valid JSON. No markdown, no preamble, no explanation outside the JSON.
+
+```json
 {
+  "summary": "2–4 sentence overview of what this PR does and its overall quality. Call out any systemic patterns (good or bad).",
+  "highlights": [
+    "1–5 short bullet strings noting what changed in this PR"
+  ],
   "reviews": [
     {
-      "path": "filename",
-      "body": "comment text",
-      "position": 1,
-      "severity": "critical|suggestion|nitpick",
-      "confidence": "high|medium|low"
+      "path": "relative/path/to/file.ts",
+      "position": 12,
+      "severity": "critical | suggestion | nitpick",
+      "category": "security | performance | quality | standard",
+      "confidence": "high | medium | low",
+      "body": "Concise description of the issue. Explain WHY it matters and what the impact is. Include a concrete fix or code example where it adds clarity."
     }
-  ],
-  "summary": "Overall summary of PR"
+  ]
 }
+```
 
+### Field notes
+- `position`: the line number in the **diff** (not the file) where the comment should be anchored. Use the first relevant line if the issue spans multiple lines.
+- `body`: be specific — reference the actual variable names, function names, or patterns in the diff. Generic comments ("this could be improved") are not acceptable.
+- `confidence: low` — use when the issue depends on context not visible in the diff (e.g. "if this is called from untrusted input..."). Still flag it; just be honest about uncertainty.
+- If no issues are found in a category, omit those entries. Do not invent issues.
+- If the code is well-written, say so clearly in `summary`. Forced criticism is worse than no criticism.
 
-Be constructive and educational in your feedback. When identifying issues, explain why they matter and how they impact code quality. Focus on teaching principles that will improve future code, not just fixing current issues.
+---
 
-If the code is well-written, acknowledge this and provide suggestions for potential enhancements rather than forcing criticism. Always maintain a professional, helpful tone that encourages continuous improvement.
+## Tone
+
+- Constructive and educational — explain *why*, not just *what*
+- Specific — reference actual code, not abstractions
+- Honest — if something is good, acknowledge it
+- Professional — no sarcasm, no condescension
+- Proportional — a one-line nitpick doesn't need three paragraphs
 
 """
 
@@ -124,17 +177,38 @@ def post_review_to_github(
         "Accept": "application/vnd.github.v3+json",
     }
     review_url = f"{github_url}/repos/{owner}/{repo}/pulls/{pr_number}/reviews"
+    inline_comments = [c for c in review.reviews if c.confidence in ("high", "medium")]
+    low_confidence = [c for c in review.reviews if c.confidence == "low"]
+
+    # Preserving low confidence reviews
+    low_conf_section = ""
+    if low_confidence:
+        items = "\n".join(f"- `{c.path}`: {c.body}" for c in low_confidence)
+        low_conf_section = f"\n\n**⚠️ Needs context (not posted inline):**\n{items}"
+
+    hl_sec = ""
+    if review.highlights:
+        items = "\n".join(f"- {h}" for h in review.highlights)
+        hl_sec = f"\n\n**📌 Highlights:**\n{items}"
+
+    category_counts = Counter(c.category for c in review.reviews)
+    category_breakdown = " . ".join(
+        f"`{cat}`: {count}" for cat, count in sorted(category_counts.items())
+    )
+
     review_data = {
-        "body": f"## 📝 Summary\n\n{review.summary}",
+        "body": f"## 📝 PR Review\n\n{review.summary}{hl_sec}\n\n**Findings:** {category_breakdown}{low_conf_section}",
         "event": "COMMENT",
         "comments": [
             {
                 "path": comment.path,
                 "position": comment.position,
-                "body": f"{SEVERITY_EMOJI[comment.severity]} **{comment.severity.upper()}**: {comment.body}",
+                "body": (
+                    f"{SEVERITY_EMOJI[comment.severity]} **{comment.severity.upper()}** `{comment.category}`"
+                    f"{' *(context-dependent)*' if comment.confidence == 'medium' else ''}: {comment.body}"
+                ),
             }
-            for comment in review.reviews
-            if comment.confidence == "high"
+            for comment in inline_comments
         ],
     }
 
@@ -259,7 +333,6 @@ Review to translate:
     finally:
         # Cleanup translation model
         cleanup_model(api_url, api_key, translation_model)
-    
 
 
 def request_code_review(
@@ -299,9 +372,13 @@ def request_code_review(
         complete_user_prompt = (
             user_prompt
             + "\n\n**Code Changes:**\n"
+            + "<diff>\n"
             + formatted_changes
-            + "\n\n**Project Standards:**\n"
+            + "\n</diff>"
+            + "\n\n**Project Standard:**\n"
+            + "<project_standard>\n"
             + (review_config or "")
+            + "\n</project_standard>"
         )
         print("Complete User Prompt given to Ollama:", complete_user_prompt)
 
@@ -328,12 +405,18 @@ def request_code_review(
             review_json["response"] if "response" in review_json else review_json
         )
 
+        # Remove markdown code fences if present
+        if isinstance(review_content, str):
+            review_content = extract_json(review_content)
+
         try:
             formatted_review = CodeReviewResponse.model_validate_json(review_content)
-        except ValidationError as e:
-            print("CodeReviewValidation failed", e.errors())
-            formatted_review = review_content
-
+        except ValidationError:
+            try:
+                data = json.loads(review_content)
+                formatted_review = CodeReviewResponse.model_validate(data)
+            except Exception:
+                formatted_review = review_content
         return formatted_review
     finally:
         # Cleanup review model
