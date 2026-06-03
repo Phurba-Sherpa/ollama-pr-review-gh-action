@@ -47,3 +47,4 @@ htmlcov/
 
 # mypy
 .mypy_cache/
+*.iml
