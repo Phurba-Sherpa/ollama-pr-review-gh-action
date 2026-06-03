@@ -1,4 +1,4 @@
-name: 'Ollama Code Review'
+name: 'Ollama PR Review'
 description: 'Request a code review from the Ollama server for a GitHub pull request.'
 inputs:
     GITHUB_API_BASE_URL:
