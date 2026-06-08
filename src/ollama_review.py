@@ -10,8 +10,7 @@ from dotenv import load_dotenv
 from pydantic import ValidationError
 
 from config import FileConfig
-from review import (CodeReviewResponse, extract_json, format_files_for_llm,
-                    generate_review_response)
+from review import (CodeReviewResponse, extract_json, format_files_for_llm)
 
 load_dotenv()
 
