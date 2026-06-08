@@ -32,27 +32,6 @@ def should_review(file):
     return True
 
 
-def generate_review_response(file_reviews):
-    """
-    Generate the complete code review response combining all file reviews.
-
-    :param file_reviews: List of FileReview objects
-    :return: Formatted full review as a string
-    """
-    response = []
-
-    for review in file_reviews:
-        response.append(f"## {review.filename}")
-        response.append(f"**Risk Score: {review.risk_score}/5**")
-        response.append("")
-
-        for feedback in review.feedback:
-            response.append(f"### {feedback.title}")
-            response.append(feedback.details)
-            response.append("")
-
-    return "\n".join(response)
-
 
 def add_position_to_file(patch: str) -> str:
     lines = patch.splitlines()
